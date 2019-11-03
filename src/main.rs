@@ -3,7 +3,12 @@
 extern crate chrono;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
+extern crate rand;
+use rand::Rng;
+
 use std::cmp::Ordering;
+
+use std::collections::HashMap;
 
 use std::env::Args;
 use std::process;
@@ -120,6 +125,7 @@ fn run(config: Config) -> Result<(), &'static str> {
             };
 
             println!("{}", event.int_display());
+            println!("Class: {}", event.subject);
             if event.description == "" { println!("(No Description)"); } else { println!("{}", event.description); }
 
         }
@@ -152,7 +158,7 @@ fn run(config: Config) -> Result<(), &'static str> {
                 let pre_indent = (0..pre_indent).map(|_| " ").collect::<String>();
                 let post_indent = (0..post_indent).map(|_| " ").collect::<String>();
 
-                println!("│ {}{}{} │", pre_indent, event.name, post_indent);
+                println!("│ {}\u{001b}{}{}\u{001b}[0m{} │", pre_indent, config.subject_colors.get(&event.subject).unwrap(), event.name, post_indent);
             }
             println!("│{}│", spaces);
             println!("└────────{}┘", dashes);
@@ -170,7 +176,21 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
     // temp config
     let mut config = Config { 
         command: Command::RemoveEvent(String::from("blah")),
+        subject_colors: HashMap::new(),
     };
+
+    let colors = File::open("colors_db").unwrap();
+    let reader = BufReader::new(colors);
+    let subject_colors: HashMap<String, String> = reader.lines()
+                                                        .map(|line| {
+                                                                let b: Vec<String> = line.unwrap()
+                                                                                            .split(' ')
+                                                                                            .map(|x| String::from(x))
+                                                                                            .collect::<Vec<String>>();
+                                                                (String::from(b[0].clone()), String::from(b[1].clone()))
+                                                            })
+                                                        .collect::<HashMap<String, String>>();
+    config.subject_colors = subject_colors;
     
     // get command name
     let a = args.next().ok_or_else(|| "No command given!")?;
@@ -184,21 +204,55 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
                         .filter(|x| !x.contains('|'))
                         .ok_or_else(|| "No/Invalid date argument given!")?;
 
+
         let date = match NaiveDate::parse_from_str(&date, "%d/%m/%y") {
             Ok(a) => a,
             Err(_) => return Err("Incorrect Date Formatting! (d/m/y)"),
         };
 
-        let description = match args.next() {
-            Some(des) => if !des.contains('|') { Ok(des) } else { Err("Invalid description given!") },
-            None => Ok(String::from("")),
-        }?;
+        let mut description = String::new();
+        let mut subject = String::new();
+        loop {
+            let flag = if let Some(a) = args.next() { a } else { break };
+            match flag.as_ref() {
+                "-d" => {
+                    description = match args.next() {
+                        Some(des) => if !des.contains('|') { Ok(des) } else { Err("Invalid description given!") },
+                        None => Err("No description provided")
+                    }?;
+                    Ok(())
+                },
+                "-c" => {
+                    subject = match args.next() {
+                        Some(sub) => if !sub.contains('|') { Ok(sub.to_lowercase()) } else { Err("Invalid subject name given!") },
+                        None => Err("No subject name provided")
+                    }?;
+                    Ok(())
+                },
+                _ => {break}
+            }?
+        }
+
+        if !config.subject_colors.contains_key(&subject) {
+            let mut rng = rand::thread_rng();
+            let color = format!("[{}m", rng.gen_range(31, 38).to_string());
+            let mut colors_db = OpenOptions::new()
+                    .append(true)
+                    .open("colors_db")
+                    .unwrap();
+
+            colors_db.write( format!("{} {}\n", subject.clone(), color.clone()).as_bytes() ).unwrap();
+            drop(colors_db);
+
+            config.subject_colors.insert(subject.clone(), color);
+        }
         
 
         config.command = Command::AddEvent(Event {
             name,
             description,
             date,
+            subject,
         });
     } else if a == "remove" {
         let name = args.next().filter(|x| !x.contains('|'))
@@ -232,6 +286,7 @@ fn get_max_length(arr: &Vec<Event>) -> usize {
 #[derive(Debug)]
 struct Config {
     command: Command,
+    subject_colors: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -247,11 +302,12 @@ struct Event {
     name: String,
     description: String,
     date: NaiveDate,
+    subject: String,
 }
 
 impl Event {
     fn encode(&self) -> String {
-        format!("{}|{}|{}", self.name, self.description, self.date.format("%d/%m/%y"))
+        format!("{}|{}|{}|{}", self.name, self.description, self.date.format("%d/%m/%y"), self.subject)
     }
 
     fn decode(raw: String) -> Event {
@@ -260,6 +316,7 @@ impl Event {
             name: String::from(items[0]),
             description: String::from(items[1]),
             date: NaiveDate::parse_from_str(items[2], "%d/%m/%y").unwrap(),
+            subject: String::from(items[3]),
         }
     }
 
@@ -300,4 +357,3 @@ impl PartialEq for Event {
 }
 
 impl Eq for Event {}
-
