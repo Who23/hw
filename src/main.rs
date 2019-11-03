@@ -3,7 +3,7 @@
 use std::env::Args;
 use std::process;
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufRead, BufWriter, Write, self};
 
 fn main() {
@@ -20,7 +20,25 @@ fn main() {
 
 fn run(config: Config) -> Result<(), &'static str> {
     match config.command {
-        Command::AddEvent(event) => (),
+        Command::AddEvent(event) => {
+            fs::copy("db", "db.tmp").unwrap();
+            let temp_file = OpenOptions::new()
+                    .append(true)
+                    .open("db.tmp")
+                    .unwrap();
+
+
+            let mut writer = BufWriter::new(temp_file);
+            writer.write(event.encode().as_bytes()).unwrap();
+            writer.write("\n".as_bytes()).unwrap();
+            drop(writer);
+
+            fs::rename("db.tmp", "db").unwrap();
+
+            println!("Added event `{}`", event.name);
+
+
+        },
         Command::RemoveEvent(name) => {
             let file = File::open("db").unwrap();
             let reader = BufReader::new(file);
@@ -28,10 +46,9 @@ fn run(config: Config) -> Result<(), &'static str> {
             let possible_events: Vec<(usize, String)> = reader.lines()
                                         .enumerate()
                                         .filter(|(_, x)| x.as_ref().unwrap().contains(&name))
-                                        .map(|(i, x)| (i, x.unwrap()))
+                                        .map(|(i, x)| (i, Event::display(x.unwrap())))
                                         .collect::<Vec<(usize, String)>>();
 
-            format!("asdsad {}", name);
             if possible_events.is_empty() { return Err("No Event Found that matches!")};
 
             let (rm_item, rm_line) = if possible_events.len() > 1 {
@@ -108,6 +125,8 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
                         .ok_or_else(|| "No/Invalid name argument given!")?;
 
         config.command = Command::RemoveEvent(name);
+    } else {
+        return Err("No command given!")
     }
 
     // return config
@@ -130,5 +149,25 @@ struct Event {
     name: String,
     description: String,
     date: String,
+}
+
+impl Event {
+    fn encode(&self) -> String {
+        format!("{}|{}|{}", self.name, self.description, self.date)
+    }
+
+    fn decode(raw: String) -> Event {
+        let items: Vec<&str> = raw.split('|').collect();
+        Event {
+            name: String::from(items[0]),
+            description: String::from(items[1]),
+            date: String::from(items[2]),
+        }
+    }
+
+    fn display(raw: String) -> String {
+        let event = Event::decode(raw);
+        format!("{} - {}", event.name, event.date)
+    }
 }
 
