@@ -1,7 +1,9 @@
 #![warn(clippy::unused_io_amount)]
 
 extern crate chrono;
-use chrono::{NaiveDate};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
+use std::cmp::Ordering;
 
 use std::env::Args;
 use std::process;
@@ -88,6 +90,40 @@ fn run(config: Config) -> Result<(), &'static str> {
 
             println!("Removed event `{}`", rm_item);
         }
+        Command::DisplayEvents => {
+            let db = File::open("db").unwrap();
+            let reader = BufReader::new(db);
+            let mut events: Vec<Event> = reader.lines()
+                                           .map(|raw_event| Event::decode(raw_event.unwrap()))
+                                           .collect();
+            events.sort();
+            let max_length = get_max_length(&events);
+            let dashes = (0..max_length-6).map(|_| "─").collect::<String>();
+            let spaces = (0..max_length+2).map(|_| " ").collect::<String>();
+
+            println!("┌{}{}┐", events[0].date.format("%d/%m/%y"), dashes);
+            println!("│{}│", spaces);
+            let mut date = events[0].date.clone();
+            for event in events {
+                if event.date != date {
+                    println!("│{}│", spaces);
+                    println!("└────────{}┘", dashes);
+                    println!("┌{}{}┐", event.date.format("%d/%m/%y"), dashes);
+                    println!("│{}│", spaces);
+                    date = event.date.clone();
+                }
+
+                let pre_indent = (max_length - event.name.len())/2;
+                let post_indent = max_length - pre_indent - event.name.len();
+
+                let pre_indent = (0..pre_indent).map(|_| " ").collect::<String>();
+                let post_indent = (0..post_indent).map(|_| " ").collect::<String>();
+
+                println!("│ {}{}{} │", pre_indent, event.name, post_indent);
+            }
+            println!("│{}│", spaces);
+            println!("└────────{}┘", dashes);
+        }
     }
 
     Ok(())
@@ -136,12 +172,24 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
                         .ok_or_else(|| "No/Invalid name argument given!")?;
 
         config.command = Command::RemoveEvent(name);
-    } else {
-        return Err("No command given!")
+    } else if a == "ls"{
+        config.command = Command::DisplayEvents;
     }
 
     // return config
     Ok(config)
+}
+
+fn get_max_length(arr: &Vec<Event>) -> usize {
+    let mut max_length = 0;
+    for el in arr {
+        let el_length = el.name.len();
+        if el_length > max_length { max_length = el_length };
+    }
+    if max_length < 15 {
+        return 15;
+    }
+    max_length
 }
 
 #[derive(Debug)]
@@ -153,6 +201,7 @@ struct Config {
 enum Command {
     AddEvent(Event),
     RemoveEvent(String),
+    DisplayEvents,
 }
 
 #[derive(Debug)]
@@ -181,4 +230,32 @@ impl Event {
         format!("{} - {}", event.name, event.date.format("%d/%m/%y"))
     }
 }
+
+// implement traits needed for vector sort
+
+impl Ord for Event {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let self_date_time = NaiveDateTime::new(self.date, NaiveTime::from_hms(0, 0, 0));
+        let other_date_time = NaiveDateTime::new(other.date, NaiveTime::from_hms(0, 0, 0));
+
+        self_date_time.timestamp().cmp(&other_date_time.timestamp())
+    }
+}
+
+impl PartialOrd for Event {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        let self_date_time = NaiveDateTime::new(self.date, NaiveTime::from_hms(0, 0, 0));
+        let other_date_time = NaiveDateTime::new(other.date, NaiveTime::from_hms(0, 0, 0));
+
+        self_date_time.timestamp() == other_date_time.timestamp()
+    }
+}
+
+impl Eq for Event {}
 
