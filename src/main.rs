@@ -1,6 +1,10 @@
+#![warn(clippy::unused_io_amount)]
+
 use std::env::Args;
-use std::fs;
 use std::process;
+
+use std::fs::{self, File};
+use std::io::{BufReader, BufRead, BufWriter, Write, self};
 
 fn main() {
    let config = get_config(std::env::args()).unwrap_or_else(|err| {
@@ -8,11 +12,65 @@ fn main() {
        process::exit(1);
    });
 
-   
+   run(config).unwrap_or_else(|err| {
+       eprintln!("Error!: {}", err);
+       process::exit(1);
+   });
 }
 
-fn run() {
+fn run(config: Config) -> Result<(), &'static str> {
+    match config.command {
+        Command::AddEvent(event) => (),
+        Command::RemoveEvent(name) => {
+            let file = File::open("db").unwrap();
+            let reader = BufReader::new(file);
 
+            let possible_events: Vec<(usize, String)> = reader.lines()
+                                        .enumerate()
+                                        .filter(|(_, x)| x.as_ref().unwrap().contains(&name))
+                                        .map(|(i, x)| (i, x.unwrap()))
+                                        .collect::<Vec<(usize, String)>>();
+
+            format!("asdsad {}", name);
+            if possible_events.is_empty() { return Err("No Event Found that matches!")};
+
+            let (rm_item, rm_line) = if possible_events.len() > 1 {
+                possible_events.iter().enumerate().for_each(|(i, item)| println!("{}: {}", i + 1, item.1));
+                println!("Please choose which event to delete (by number): ");
+                let mut line = String::new();
+                let mut line_int = 0;
+                let input = io::stdin();
+
+                while !(line_int > 0 && line_int <= possible_events.len()) {
+                    input.read_line(&mut line).unwrap();
+                    line_int = line.trim().parse::<usize>().unwrap();
+                }
+
+                (&possible_events[line_int - 1].1, possible_events[line_int - 1].0)
+            } else {
+                (&possible_events[0].1, possible_events[0].0)
+            };
+
+            let temp_file = File::create("db.tmp").unwrap();
+            let mut writer = BufWriter::new(temp_file);
+            let file = File::open("db").unwrap();
+            let reader = BufReader::new(file);
+            reader.lines()
+                   .enumerate()
+                   .for_each(|(i, x)| {
+                       if i != rm_line {
+                           writer.write(x.unwrap().as_bytes()).unwrap();
+                           writer.write("\n".as_bytes()).unwrap();
+                       }
+                   });
+
+            fs::rename("db.tmp", "db").unwrap();
+
+            println!("Removed event `{}`", rm_item);
+        }
+    }
+
+    Ok(())
 }
 
 fn get_config(mut args: Args) -> Result<Config, &'static str> {
@@ -29,9 +87,16 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
 
     // add command to config object
     if a == "add" {
-        let name = args.next().ok_or_else(|| "No name argument given!")?;
-        let description = args.next().ok_or_else(|| "No description argument given!")?;
-        let date = args.next().ok_or_else(|| "No date argument given!")?;
+        let name = args.next()
+                        .filter(|x| !x.contains('|'))
+                        .ok_or_else(|| "No/Invalid name argument given!")?;
+        let description = args.next()
+                        .filter(|x| !x.contains('|'))
+                        .ok_or_else(|| "No/Invalid description argument given!")?;
+        let date = args.next()
+                        .filter(|x| !x.contains('|'))
+                        .ok_or_else(|| "No/Invalid date argument given!")?;
+        
 
         config.command = Command::AddEvent(Event {
             name,
@@ -39,7 +104,8 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
             date,
         });
     } else if a == "remove" {
-        let name = args.next().unwrap();
+        let name = args.next().filter(|x| !x.contains('|'))
+                        .ok_or_else(|| "No/Invalid name argument given!")?;
 
         config.command = Command::RemoveEvent(name);
     }
