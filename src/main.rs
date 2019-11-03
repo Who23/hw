@@ -1,5 +1,8 @@
 #![warn(clippy::unused_io_amount)]
 
+extern crate chrono;
+use chrono::{NaiveDate};
+
 use std::env::Args;
 use std::process;
 
@@ -91,6 +94,7 @@ fn run(config: Config) -> Result<(), &'static str> {
 }
 
 fn get_config(mut args: Args) -> Result<Config, &'static str> {
+    
     // to get the first item out of the way, which is jistt the name
     args.next();
 
@@ -110,6 +114,12 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
         let date = args.next()
                         .filter(|x| !x.contains('|'))
                         .ok_or_else(|| "No/Invalid date argument given!")?;
+
+        let date = match NaiveDate::parse_from_str(&date, "%d/%m/%y") {
+            Ok(a) => a,
+            Err(_) => return Err("Incorrect Date Formatting! (d/m/y)"),
+        };
+
         let description = match args.next() {
             Some(des) => if !des.contains('|') { Ok(des) } else { Err("Invalid description given!") },
             None => Ok(String::from("")),
@@ -149,12 +159,12 @@ enum Command {
 struct Event {
     name: String,
     description: String,
-    date: String,
+    date: NaiveDate,
 }
 
 impl Event {
     fn encode(&self) -> String {
-        format!("{}|{}|{}", self.name, self.description, self.date)
+        format!("{}|{}|{}", self.name, self.description, self.date.format("%d/%m/%y"))
     }
 
     fn decode(raw: String) -> Event {
@@ -162,13 +172,13 @@ impl Event {
         Event {
             name: String::from(items[0]),
             description: String::from(items[1]),
-            date: String::from(items[2]),
+            date: NaiveDate::parse_from_str(items[2], "%d/%m/%y").unwrap(),
         }
     }
 
     fn display(raw: String) -> String {
         let event = Event::decode(raw);
-        format!("{} - {}", event.name, event.date)
+        format!("{} - {}", event.name, event.date.format("%d/%m/%y"))
     }
 }
 
