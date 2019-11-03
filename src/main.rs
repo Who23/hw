@@ -89,6 +89,39 @@ fn run(config: Config) -> Result<(), &'static str> {
             fs::rename("db.tmp", "db").unwrap();
 
             println!("Removed event `{}`", rm_item);
+        },
+        Command::Info(name) => {
+            let file = File::open("db").unwrap();
+            let reader = BufReader::new(file);
+
+            let possible_events: Vec<(usize, Event)> = reader.lines()
+                                        .enumerate()
+                                        .filter(|(_, x)| x.as_ref().unwrap().contains(&name))
+                                        .map(|(i, x)| (i, Event::decode(x.unwrap())))
+                                        .collect::<Vec<(usize, Event)>>();
+
+            if possible_events.is_empty() { return Err("No Event Found that matches!")};
+
+            let event = if possible_events.len() > 1 {
+                possible_events.iter().enumerate().for_each(|(i, item)| println!("{}: {}", i + 1, item.1.int_display()));
+                println!("Please choose which event to delete (by number): ");
+                let mut line = String::new();
+                let mut line_int = 0;
+                let input = io::stdin();
+
+                while !(line_int > 0 && line_int <= possible_events.len()) {
+                    input.read_line(&mut line).unwrap();
+                    line_int = line.trim().parse::<usize>().unwrap();
+                }
+
+                &possible_events[line_int - 1].1
+            } else {
+                &possible_events[0].1
+            };
+
+            println!("{}", event.int_display());
+            if event.description == "" { println!("(No Description)"); } else { println!("{}", event.description); }
+
         }
         Command::DisplayEvents => {
             let db = File::open("db").unwrap();
@@ -172,8 +205,12 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
                         .ok_or_else(|| "No/Invalid name argument given!")?;
 
         config.command = Command::RemoveEvent(name);
-    } else if a == "ls"{
+    } else if a == "ls" {
         config.command = Command::DisplayEvents;
+    } else if a == "info" {
+        let name = args.next().filter(|x| !x.contains('|'))
+                        .ok_or_else(|| "No/Invalid name argument given!")?;
+        config.command = Command::Info(name);
     }
 
     // return config
@@ -201,6 +238,7 @@ struct Config {
 enum Command {
     AddEvent(Event),
     RemoveEvent(String),
+    Info(String),
     DisplayEvents,
 }
 
@@ -228,6 +266,10 @@ impl Event {
     fn display(raw: String) -> String {
         let event = Event::decode(raw);
         format!("{} - {}", event.name, event.date.format("%d/%m/%y"))
+    }
+
+    fn int_display(&self) -> String {
+        format!("{} - {}", self.name, self.date.format("%d/%m/%y"))
     }
 }
 
