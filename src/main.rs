@@ -107,12 +107,13 @@ fn get_config(mut args: Args) -> Result<Config, &'static str> {
         let name = args.next()
                         .filter(|x| !x.contains('|'))
                         .ok_or_else(|| "No/Invalid name argument given!")?;
-        let description = args.next()
-                        .filter(|x| !x.contains('|'))
-                        .ok_or_else(|| "No/Invalid description argument given!")?;
         let date = args.next()
                         .filter(|x| !x.contains('|'))
                         .ok_or_else(|| "No/Invalid date argument given!")?;
+        let description = match args.next() {
+            Some(des) => if !des.contains('|') { Ok(des) } else { Err("Invalid description given!") },
+            None => Ok(String::from("")),
+        }?;
         
 
         config.command = Command::AddEvent(Event {
